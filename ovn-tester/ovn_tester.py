@@ -7,8 +7,6 @@ import ovn_stats
 import netaddr
 import time
 import yaml
-import random
-import string
 
 from collections import namedtuple
 from ovn_context import Context
@@ -327,39 +325,47 @@ def run_test_netpol_multitenant(ovn, global_cfg, cfg):
         for ns in all_ns:
             ns.unprovision()
 
-def cluster_density_run(ovn, burst=1):
-    ns = [
-        Namespace(ovn, 'NS_'.join(random.choice(string.ascii_lowercase)))
-        for _ in range(burst)
-    ]
-    # create 6 short lived "build" pods
-    build_ports = ovn.provision_ports(6*burst)
-    for i in range(burst):
-        ns[i].add_ports(build_ports[6*i : 6*i + 5])
-    ovn.ping_ports(build_ports)
-    # create 4 legacy pods
-    ports = ovn.provision_ports(4*burst)
-    for i in range(burst):
-        ns[i].add_ports(ports[4*i : 4*i + 3])
-        # add VIPs and backends to cluster load-balancer
-        ovn.provision_vips_to_load_balancers(ports[i*4 : i*4 + 1])
-        ovn.provision_vips_to_load_balancers([ports[i*4 + 2]])
-        ovn.provision_vips_to_load_balancers([ports[i*4 + 3]])
-    ovn.ping_ports(ports)
-    ovn.unprovision_ports(build_ports)
 
-    return ns
+DENSITY_N_BUILD_PODS = 6
+DENSITY_N_PODS = 4
 
 def run_test_cluster_density(ovn, cfg):
     all_ns = []
     with Context('cluster_density_startup', 1) as ctx:
-        ns = cluster_density_run(ovn, burst=cfg.n_startup)
+        ns = [
+            Namespace(ovn, 'NS_{}'.format(i))
+            for i in range(cfg.n_startup)
+        ]
         all_ns.extend(ns)
+
+        # create 4 legacy pods
+        ports = ovn.provision_ports(DENSITY_N_PODS*cfg.n_startup)
+        for i in range(cfg.n_startup):
+            ns[i].add_ports(ports[DENSITY_N_PODS*i : DENSITY_N_PODS*(i+1) - 1])
+            # add VIPs and backends to cluster load-balancer
+            ovn.provision_vips_to_load_balancers(ports[i*DENSITY_N_PODS :
+                                                       i*DENSITY_N_PODS + 1])
+            ovn.provision_vips_to_load_balancers([ports[i*DENSITY_N_PODS + 2]])
+            ovn.provision_vips_to_load_balancers([ports[i*DENSITY_N_PODS + 3]])
 
     with Context('cluster_density', cfg.n_runs - cfg.n_startup) as ctx:
         for i in ctx:
-            ns = cluster_density_run(ovn)
-            all_ns.extend(ns)
+            ns = Namespace(ovn, 'NS_{}'.format(cfg.n_startup + i)
+            all_ns.append(ns)
+
+            # create 6 short lived "build" pods
+            build_ports = ovn.provision_ports(DENSITY_N_BUILD_PODS)
+            ns.add_ports(build_ports)
+            ovn.ping_ports(build_ports)
+            # create 4 legacy pods
+            ports = ovn.provision_ports(DENSITY_N_PODS)
+            ns.add_ports(ports)
+            # add VIPs and backends to cluster load-balancer
+            ovn.provision_vips_to_load_balancers(ports[0:1])
+            ovn.provision_vips_to_load_balancers([ports[2]])
+            ovn.provision_vips_to_load_balancers([ports[3]])
+            ovn.ping_ports(ports)
+            ovn.unprovision_ports(build_ports)
 
     if not global_cfg.cleanup:
         return
