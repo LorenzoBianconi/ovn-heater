@@ -40,17 +40,24 @@ class NetpolSmall(object):
                     label = ns_labels[l*self.config.labels_ns_ratio :
                                       (l+1)*self.config.labels_ns_ratio]
 
-                    nlabel = []
-                    nlabel.append(label)
+                    ex_label = []
+                    ex_label.append(label)
                     n = (l+1)%self.config.labels_ns_ratio
-                    nlabel.append(ns_labels[n*self.config.labels_ns_ratio :
-                                  (n+1)*self.config.labels_ns_ratio])
+                    ex_label.append(ns_labels[n*self.config.labels_ns_ratio :
+                                    (n+1)*self.config.labels_ns_ratio])
+                    nlabel = [p for p in label if p not in ex_label]
 
-                    addr_set = ovn.nbctl.address_set_create(f'as_ns_{l}')
-                    ovn.nbctl.address_set_add_addrs(addr_set,
+                    addr_set0 = ovn.nbctl.address_set_create(f'as_ns_{l}_0')
+                    ovn.nbctl.address_set_add_addrs(addr_set0,
                                                     [str(p.ip) for p in label])
-                    pg = ovn.nbctl.port_group_create(f'pg_ns_{l}')
-                    ovn.nbctl.port_group_add_ports(pg, label)
+                    pg0 = ovn.nbctl.port_group_create(f'pg_ns_{l}_0')
+                    ovn.nbctl.port_group_add_ports(pg0, label)
+
+                    addr_set1 = ovn.nbctl.address_set_create(f'as_ns_{l}_1')
+                    ovn.nbctl.address_set_add_addrs(addr_set1,
+                                                    [str(p.ip) for p in nlabel])
+                    pg1 = ovn.nbctl.port_group_create(f'pg_ns_{l}_1')
+                    ovn.nbctl.port_group_add_ports(pg1, nlabel)
     
         if not global_cfg.cleanup:
             return
