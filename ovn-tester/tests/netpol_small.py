@@ -40,6 +40,7 @@ class NetpolSmall(object):
                     label = ns_labels[l*self.config.labels_ns_ratio :
                                       (l+1)*self.config.labels_ns_ratio]
 
+                    nlabel = []
                     nlabel.append(label)
                     n = (l+1)%self.config.labels_ns_ratio
                     nlabel.append(ns_labels[n*self.config.labels_ns_ratio :
