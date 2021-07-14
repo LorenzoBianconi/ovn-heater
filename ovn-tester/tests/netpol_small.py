@@ -39,6 +39,12 @@ class NetpolSmall(object):
                 for l in range(self.config.labels_ns_ratio):
                     label = ns_labels[l*self.config.labels_ns_ratio :
                                       (l+1)*self.config.labels_ns_ratio]
+
+                    nlabel.append(label)
+                    n = (l+1)%self.config.labels_ns_ratio
+                    nlabel.append(ns_labels[n*self.config.labels_ns_ratio :
+                                  (n+1)*self.config.labels_ns_ratio])
+
                     addr_set = ovn.nbctl.address_set_create(f'as_ns_{l}')
                     ovn.nbctl.address_set_add_addrs(addr_set,
                                                     [str(p.ip) for p in label])
