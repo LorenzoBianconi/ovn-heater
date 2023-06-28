@@ -15,6 +15,8 @@ class BaseClusterBringup(ExtCmd):
         )
 
     def run(self, clusters, global_cfg):
+        clusters[0].create_transit_switch()
+
         for c, cluster in enumerate(clusters):
             # create ovn topology
             with Context(
@@ -25,6 +27,7 @@ class BaseClusterBringup(ExtCmd):
                 cluster.create_cluster_load_balancer(
                     f'lb-cluster{c+1}', global_cfg
                 )
+                cluster.connect_transit_switch()
                 for i in ctx:
                     worker = cluster.worker_nodes[i]
                     worker.provision(cluster)
@@ -35,3 +38,6 @@ class BaseClusterBringup(ExtCmd):
                     worker.ping_ports(cluster, ports)
 
                 cluster.provision_lb_group(f'cluster-lb-group{c+1}')
+
+        # check ic connectivity
+        clusters[0].check_ic_connectivity(clusters)

@@ -10,6 +10,7 @@ from collections import namedtuple
 from collections import defaultdict
 from randmac import RandMac
 from datetime import datetime
+from ovn_utils import LSwitch
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ ClusterConfig = namedtuple(
         'internal_net',
         'external_net',
         'gw_net',
+        'ts_net',
         'cluster_net',
         'n_workers',
         'n_relays',
@@ -748,6 +750,7 @@ class Cluster:
         self.brex_cfg = brex_cfg
         self.nbctl = None
         self.sbctl = None
+        self.icnbctl = None
         self.net = cluster_cfg.cluster_net
         self.gw_net = ovn_utils.DualStackSubnet.next(
             cluster_cfg.gw_net,
@@ -760,6 +763,7 @@ class Cluster:
         self.join_switch = None
         self.last_selected_worker = 0
         self.n_ns = 0
+        self.ts_switch = None
 
     def add_workers(self, worker_nodes):
         self.worker_nodes.extend(worker_nodes)
@@ -781,6 +785,15 @@ class Cluster:
             self.central_nodes[0], sb_conn, inactivity_probe
         )
 
+        # ovn-ic configuration
+        self.icnbctl = ovn_utils.OvnIcNbctl(
+            None,
+            f'tcp:{self.cluster_cfg.node_net.ip + 2}:6645',
+            inactivity_probe,
+        )
+        self.nbctl.set_global('ic-route-learn', 'true')
+        self.nbctl.set_global('ic-route-adv', 'true')
+
         for r in self.relay_nodes:
             r.start()
 
@@ -794,6 +807,7 @@ class Cluster:
         self.nbctl.set_global(
             'northd_probe_interval', self.cluster_cfg.northd_probe_interval
         )
+        self.nbctl.set_global_name(f'az{self.az}')
         self.nbctl.set_inactivity_probe(self.cluster_cfg.db_inactivity_probe)
         self.sbctl.set_inactivity_probe(self.cluster_cfg.db_inactivity_probe)
 
@@ -813,6 +827,46 @@ class Cluster:
                 [db.get_connection_string(6642) for db in self.relay_nodes]
             )
         return self.get_sb_connection_string()
+
+    def create_transit_switch(self):
+        self.icnbctl.ts_add()
+
+    def connect_transit_switch(self):
+        uuid = self.nbctl.ls_get_uuid('ts', 10)
+        self.ts_switch = LSwitch(
+            name='ts',
+            cidr=self.cluster_cfg.ts_net.n4,
+            cidr6=self.cluster_cfg.ts_net.n6,
+            uuid=uuid,
+        )
+        rp = self.nbctl.lr_port_add(
+            self.router,
+            f'lr-cluster{self.az}-to-ts',
+            RandMac(),
+            self.cluster_cfg.ts_net.forward(self.az),
+        )
+        self.nbctl.ls_port_add(
+            self.ts_switch, f'ts-to-lr-cluster{self.az}', rp
+        )
+        self.nbctl.lr_port_set_gw_chassis(rp, self.worker_nodes[0].container)
+        self.worker_nodes[0].vsctl.set_global_external_id(
+            'ovn-is-interconn', 'true'
+        )
+
+    def check_ic_connectivity(self, clusters):
+        for cluster in clusters:
+            if self == cluster:
+                continue
+            for w in cluster.worker_nodes:
+                port = w.lports[0]
+                if port.ip:
+                    self.worker_nodes[0].run_ping(
+                        self, self.worker_nodes[0].lports[0].name, port.ip
+                    )
+                if port.ip6:
+                    self.worker_nodes[0].run_ping(
+                        self, self.worker_nodes[0].lports[0].name, port.ip6
+                    )
 
     def create_cluster_router(self, rtr_name):
         self.router = self.nbctl.lr_add(rtr_name)
