@@ -33,4 +33,5 @@ class BaseClusterBringup(ExtCmd):
                     )
                     worker.provision_load_balancers(cluster, ports, global_cfg)
                     worker.ping_ports(cluster, ports)
+
                 cluster.provision_lb_group(f'cluster-lb-group{c+1}')
